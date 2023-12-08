@@ -443,6 +443,9 @@ func (inst *instance) boot() error {
 	args = append(args,
 		"-device", inst.cfg.NetDev+",netdev=net0",
 		"-netdev", fmt.Sprintf("user,id=net0,restrict=on,hostfwd=tcp:127.0.0.1:%v-:22", inst.port))
+	args = append(args,
+		"-fsdev", "local,path=/home/l392zhan/Desktop/fuzz/shared,security_model=none,id=shared_folder",
+		"-device", "virtio-9p-pci,fsdev=shared_folder,mount_tag=host_shared") // Liyi
 	if inst.image == "9p" {
 		args = append(args,
 			"-fsdev", "local,id=fsdev0,path=/,security_model=none,readonly",
@@ -647,6 +650,14 @@ func (inst *instance) Run(timeout time.Duration, stop <-chan bool, command strin
 
 	sshArgs := vmimpl.SSHArgsForward(inst.debug, inst.sshkey, inst.port, inst.forwardPort)
 	args := strings.Split(command, " ")
+	// Liyi
+	glusterfs_cmd := false
+	if args[len(args)-1] == "glusterfs_cmd" {
+		glusterfs_cmd = true
+		args = args[:len(args)-1]
+		command = strings.ReplaceAll(command, "glusterfs_cmd", "")
+	}
+	// Liyi
 	if bin := filepath.Base(args[0]); inst.target.HostFuzzer &&
 		(bin == "syz-fuzzer" || bin == "syz-execprog") {
 		// Weird mode for fuchsia and akaros.
@@ -673,10 +684,23 @@ func (inst *instance) Run(timeout time.Duration, stop <-chan bool, command strin
 	cmd.Dir = inst.workdir
 	cmd.Stdout = wpipe
 	cmd.Stderr = wpipe
-	if err := cmd.Start(); err != nil {
-		wpipe.Close()
-		return nil, nil, err
+	// if err := cmd.Start(); err != nil {
+	// 	wpipe.Close()
+	// 	return nil, nil, err
+	// }
+	// Liyi
+	if glusterfs_cmd {
+		if err := cmd.Run(); err != nil {
+			wpipe.Close()
+			return nil, nil, err
+		}
+	} else {
+		if err := cmd.Start(); err != nil {
+			wpipe.Close()
+			return nil, nil, err
+		}
 	}
+	// Liyi
 	wpipe.Close()
 	errc := make(chan error, 1)
 	signal := func(err error) {

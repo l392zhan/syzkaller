@@ -17,6 +17,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+	"io/ioutil" // Liyi
+	"strings" // Liyi
 
 	"github.com/google/syzkaller/dashboard/dashapi"
 	"github.com/google/syzkaller/pkg/asset"
@@ -158,6 +160,11 @@ func main() {
 		// This lets better distinguish logs of individual syz-manager instances.
 		log.SetName(cfg.Name)
 	}
+	/* Liyi
+	byteArr, _ := json.Marshal(cfg)
+    fmt.Println(string(byteArr))
+    os.Exit(0)
+    */
 	RunManager(cfg)
 }
 
@@ -764,8 +771,26 @@ func (mgr *Manager) runInstance(index int) (*Crash, error) {
 	return crash, nil
 }
 
+func glusterfs_fuzz_setup(inst *vm.Instance) {
+	stopSignal := make(chan bool)
+
+	log.Logf(0, "glusterfs: mounting 9pfs...")
+	_,_,_ = inst.Run(time.Minute, stopSignal, "mount -t 9p -o trans=virtio host_shared /root/cov -oversion=9p2000.L glusterfs_cmd")
+
+	log.Logf(0, "glusterfs: setting up loop device...")
+	_,_,_ = inst.Run(time.Minute, stopSignal, "losetup -Pf --show /root/mnt/vhd.img > /root/cov/device_num glusterfs_cmd")
+	devNum, _ := ioutil.ReadFile("/home/l392zhan/Desktop/fuzz/shared/device_num")
+
+	log.Logf(0, "glusterfs: mounting server brick...")
+	_,_,_ = inst.Run(time.Minute, stopSignal, "mount "+strings.ReplaceAll(string(devNum), "\n", "")+" /data/brick1 -t xfs glusterfs_cmd")
+
+	log.Logf(0, "glusterfs: booting glusterfs...")
+	_,_,_ = inst.Run(time.Minute, stopSignal, "/root/mnt/run.sh glusterfs_cmd")
+} // Liyi
+
 func (mgr *Manager) runInstanceInner(index int, instanceName string) (*report.Report, []byte, error) {
 	inst, err := mgr.vmPool.Create(index)
+	glusterfs_fuzz_setup(inst) // Liyi
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to create instance: %w", err)
 	}
